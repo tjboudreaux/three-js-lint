@@ -1,0 +1,80 @@
+{
+  "name": "eslint-plugin-three",
+  "version": "0.1.0",
+  "description": "Conservative performance and rendering rules for Three.js and its ecosystem.",
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "three",
+    "three.js",
+    "webgl",
+    "performance"
+  ],
+  "homepage": "https://github.com/tjboudreaux/eslint-plugin-three#readme",
+  "bugs": {
+    "url": "https://github.com/tjboudreaux/eslint-plugin-three/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tjboudreaux/eslint-plugin-three.git"
+  },
+  "license": "MIT",
+  "author": "tjboudreaux",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean.mjs",
+    "docs:check": "pnpm build && node scripts/generate-readme.mjs --check",
+    "docs:generate": "pnpm build && node scripts/generate-readme.mjs --write",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "pack:smoke": "node scripts/pack-smoke.mjs",
+    "prepack": "pnpm build && pnpm docs:check",
+    "prepublishOnly": "pnpm verify",
+    "test": "vitest run --coverage",
+    "test:compat": "cross-env ESLINT_PACKAGE=eslint vitest run --coverage=false && cross-env ESLINT_PACKAGE=eslint-v9-latest vitest run --coverage=false && cross-env ESLINT_PACKAGE=eslint-v10-min vitest run --coverage=false && cross-env ESLINT_PACKAGE=eslint-v10-latest vitest run --coverage=false",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test:compat && pnpm test && pnpm docs:check && pnpm pack:smoke"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/estree": "1.0.8",
+    "@types/node": "^20.19.0",
+    "@typescript-eslint/parser": "8.66.0",
+    "@vitest/coverage-v8": "4.1.10",
+    "cross-env": "10.1.0",
+    "eslint": "9.22.0",
+    "eslint-plugin-eslint-plugin": "7.6.1",
+    "eslint-v10-latest": "npm:eslint@10.8.0",
+    "eslint-v10-min": "npm:eslint@10.0.0",
+    "eslint-v9-latest": "npm:eslint@9.39.5",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.66.0",
+    "vitest": "4.1.10"
+  },
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
+  "peerDependencies": {
+    "eslint": "^9.22.0 || ^10.0.0"
+  }
+}

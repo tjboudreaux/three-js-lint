@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm Trusted Publishing over OIDC. There is deliberately no
+      # long-lived token fallback: if OIDC is unavailable, the release stops.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        run: pnpm verify
+
+      - name: Reject an already published version, and a name owned elsewhere
+        run: |
+          set -euo pipefail
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "Releasing ${NAME}@${VERSION}"
+
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "::error::${NAME}@${VERSION} is already published on npm."
+            exit 1
+          fi
+
+          # If the package already exists, it must point back at this repository.
+          if npm view "${NAME}" name >/dev/null 2>&1; then
+            REPO="$(npm view "${NAME}" repository.url 2>/dev/null || echo '')"
+            case "${REPO}" in
+              *tjboudreaux/eslint-plugin-three*) ;;
+              *)
+                echo "::error::Existing npm package ${NAME} points at '${REPO}', not this repository."
+                exit 1
+                ;;
+            esac
+          fi
+
+      - name: Publish with provenance
+        run: npm publish --provenance --access public
