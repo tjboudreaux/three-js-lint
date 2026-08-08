@@ -40,7 +40,9 @@ function readManifest(): { name: string; version: string } {
     typeof raw.name !== "string" ||
     typeof raw.version !== "string"
   ) {
-    throw new TypeError("eslint-plugin-three: package.json must contain string name and version");
+    throw new TypeError(
+      "eslint-plugin-threejslint: package.json must contain string name and version",
+    );
   }
   return { name: raw.name, version: raw.version };
 }

@@ -1,7 +1,7 @@
 import type { Rule } from "eslint";
 
 /** Base URL every rule's documentation link is built from. */
-const DOCS_BASE_URL = "https://github.com/tjboudreaux/eslint-plugin-three/blob/main/docs/rules";
+const DOCS_BASE_URL = "https://github.com/tjboudreaux/three-js-lint/blob/main/docs/rules";
 
 /** Everything a rule module must declare to be part of this plugin. */
 export interface RuleSpec {

@@ -11,6 +11,12 @@ Report messages:
 - `Calling this.el.setAttribute("{{attribute}}", ...) in tick/tock routes a transform update through A-Frame on a frame path; update object3D directly when units and semantics are equivalent.`
 - `Calling this.el.setAttribute("visible", ...) in tick/tock routes visibility through A-Frame on a frame path; update object3D.visible directly when semantics are equivalent.`
 
+## Why this exists
+
+A-Frame's `setAttribute()` path updates component data and performs string/component conversion work.
+Repeating that path for transforms on every tick adds framework overhead to the hot loop; direct
+`object3D` mutation keeps continuous motion on the Three.js side.
+
 ## Detection
 
 A report requires all of the following to be provable from syntax:

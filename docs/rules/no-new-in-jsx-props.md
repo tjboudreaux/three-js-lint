@@ -8,6 +8,12 @@ Hoisting the value (or using R3F's array form) keeps the prop stable across rend
 
 Report message: `Creating {{constructor}} inline for the {{property}} prop gives this R3F host a new object on each React render; pass a stable value.`
 
+## Why this exists
+
+Constructing a Three.js transform directly in JSX gives React Three Fiber a fresh object during
+rendering. That creates identity churn and makes the reconciler process a value that could instead be
+represented by a stable object or the framework's array shorthand.
+
 ## Detection
 
 A report requires all of the following to be provable from syntax:

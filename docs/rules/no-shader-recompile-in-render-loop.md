@@ -1,24 +1,41 @@
 # no-shader-recompile-in-render-loop
 
-Reports `material.needsUpdate = true` assignments inside verified render-loop callbacks, where
-`material` is provably a Three.js `Material` instance. Setting `needsUpdate` bumps the material's
-version counter, which makes `WebGLRenderer` re-run its program setup for that material. When the
-flag is set on a frame path, shader program work is requested every frame; invalidation belongs in
-the code that actually changed the material, outside the repeated path. The message ID is
+Reports two kinds of shader and pipeline compilation work inside verified render-loop callbacks: a
+`material.needsUpdate = true` write, and a renderer `compile`/`compileAsync` call.
+
+Setting `needsUpdate` bumps the material's version counter, which makes the renderer re-run its
+program setup for that material. Calling `compile` or `compileAsync` traverses the scene and builds
+shader or pipeline state for everything it finds — precompilation that is worth doing once and is far
+too expensive to repeat per frame. Both belong outside the repeated path.
+
 `materialNeedsUpdateInLoop`:
 
 > Setting {{material}}.needsUpdate to true inside this verified render-loop callback requests
 > shader program work; move invalidation outside the repeated path.
 
+`rendererCompileInLoop`:
+
+> Calling {{renderer}}.{{method}}() inside this verified render-loop callback traverses the scene and
+> compiles shader or pipeline state; precompile outside the repeated path.
+
+## Why this exists
+
+Changing material shader inputs or explicitly compiling a renderer can invalidate or build GPU
+programs. Doing that during rendering risks compilation and pipeline stalls exactly where frame time
+is most constrained, so these operations should happen during setup or an intentional transition.
+
 ## Detection
 
 A report requires all of the following to be statically provable:
 
-- The assignment's nearest enclosing function is a verified render-loop callback. The recognized
+- The reported node's nearest enclosing function is a verified render-loop callback. The recognized
   dispatch mechanisms are exactly: an unshadowed
   `requestAnimationFrame` / `window.requestAnimationFrame` / `globalThis.requestAnimationFrame`
-  call; `setAnimationLoop` called on a binding proven to be `new WebGLRenderer` imported from
-  `three` or `new WebGPURenderer` imported from `three/webgpu`; `tick`/`tock` methods of the object
+  call; `setAnimationLoop` on a binding proven to be `new WebGLRenderer` imported from `three` or
+  `new WebGPURenderer` imported from `three/webgpu`; a one-argument `setOpaqueSort` or
+  `setTransparentSort` comparator installed on that same proven renderer; `onBeforeRender` or
+  `onAfterRender` installed on an immutable instance of a cataloged renderable class, or declared as
+  a non-static method or field on a direct subclass of one; `tick`/`tock` methods of the object
   literal passed directly to `AFRAME.registerComponent` (with `AFRAME` a namespace import of
   `aframe` or a configured global); `onBeforeRender`/`onRender` destructured from the current
   `@tresjs/core` `useLoop()`; and a React Three Fiber `useFrame` callback imported from
@@ -36,10 +53,26 @@ A report requires all of the following to be statically provable:
   `SpriteMaterial`, `RawShaderMaterial`, `ShaderMaterial`, `PointsMaterial`, `MeshStandardMaterial`,
   `MeshPhysicalMaterial`, `MeshPhongMaterial`, `MeshToonMaterial`, `MeshNormalMaterial`,
   `MeshLambertMaterial`, `MeshMatcapMaterial`, `MeshBasicMaterial`, `MeshDepthMaterial`,
-  `MeshDistanceMaterial`, `LineBasicMaterial`, `LineDashedMaterial`.
+  `MeshDistanceMaterial`, `LineBasicMaterial`, `LineDashedMaterial`. Imported from `three/webgpu`, the
+  17 node materials also count: `Line2NodeMaterial`, `LineBasicNodeMaterial`, `LineDashedNodeMaterial`,
+  `MeshBasicNodeMaterial`, `MeshLambertNodeMaterial`, `MeshMatcapNodeMaterial`,
+  `MeshNormalNodeMaterial`, `MeshPhongNodeMaterial`, `MeshPhysicalNodeMaterial`, `MeshSSSNodeMaterial`,
+  `MeshStandardNodeMaterial`, `MeshToonNodeMaterial`, `NodeMaterial`, `PointsNodeMaterial`,
+  `ShadowNodeMaterial`, `SpriteNodeMaterial`, and `VolumeNodeMaterial`. The coupling is exact: a node
+  material imported from `three` proves nothing, because `three` does not export one.
 
 The class list is enumerated rather than matched on a `Material` name suffix, so a user-defined
 class named `FoamMaterial` is never mistaken for a Three.js material.
+
+The compilation branch requires instead:
+
+- The callee is a static member access named exactly `compile` or `compileAsync`, called with two or
+  three non-spread arguments. `WebGLRenderer` declares `compile( scene, camera, targetScene )` and
+  `compileAsync` with the same shape; the WebGPU renderer declares `compileAsync( scene, camera,
+targetScene )` and exposes `compile` as its public getter alias, so both names take the same two or
+  three arguments in either renderer.
+- The receiver resolves — directly or through one immutable alias hop — to the renderer its own module
+  exports: `new WebGLRenderer` from `three`, or `new WebGPURenderer` from `three/webgpu`.
 
 Only one report is emitted per `needsUpdate = true` write. An accompanying `defines` or
 `onBeforeCompile` write in the same callback is represented by that single report and never
@@ -63,6 +96,15 @@ produces a second one.
 - Any write outside a verified render-loop callback, including invalidation in event handlers or
   setup code.
 - User classes whose names merely end in `Material`.
+- A node material imported from `three`, which does not export one.
+- `renderer.render(...)`, which draws rather than precompiles.
+- A `compile` or `compileAsync` call with one argument, or with four — neither renderer defines a
+  four-argument form, and neither accepts a progress callback.
+- A `compile` call with a spread argument, which hides the argument count.
+- A `compile` call on an unknown renderer lookalike, or on a cross-module renderer such as a
+  `WebGPURenderer` imported from `three`.
+- The PMREM compile helpers `compileCubemapShader` and `compileEquirectangularShader`, which belong to
+  the environment-map prefilter rather than to the renderer.
 
 ## Static limits
 
@@ -71,9 +113,10 @@ draw calls, asset encoding, resource ownership, iteration count, or scene suitab
 
 Specific to this rule: it cannot know whether the reported material is actually rendered by the
 loop it appears in, whether the shader program is already cached, or how expensive a given
-recompilation is on the target GPU. It also cannot follow a material through a function call, a
-member expression, or a mutable binding, so aliasing beyond one immutable `const` hop hides the
-write.
+recompilation is on the target GPU. For the compilation branch, it cannot know how large the traversed
+scene is or how many programs are already warm. It also cannot follow a material or a renderer through
+a function call, a member expression, or a mutable binding, so aliasing beyond one immutable `const`
+hop hides the write.
 
 ## Examples
 
@@ -96,6 +139,14 @@ useFrame(() => {
 });
 ```
 
+```js
+import { WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+requestAnimationFrame(() => {
+  renderer.compile(scene, camera);
+});
+```
+
 ### Correct
 
 ```js
@@ -109,6 +160,15 @@ import { ShaderMaterial } from "three";
 const material = new ShaderMaterial();
 requestAnimationFrame(() => {
   material.uniforms.uTime.value = 1;
+});
+```
+
+```js
+import { WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.compile(scene, camera);
+requestAnimationFrame(() => {
+  renderer.render(scene, camera);
 });
 ```
 
@@ -141,3 +201,9 @@ Enabled by `three/recommended` and `three/all`.
   — the version gate that triggers program work for an updated material.
 - [Three.js manual: how to update things](https://threejs.org/manual/en/how-to-update-things.html)
   — which object changes require `needsUpdate`.
+- [Three.js `NodeMaterials.js` source](https://github.com/mrdoob/three.js/blob/r185/src/materials/nodes/NodeMaterials.js)
+  — the 17 node-material classes exported only by `three/webgpu`.
+- [Three.js common `Renderer.js` source](https://github.com/mrdoob/three.js/blob/r185/src/renderers/common/Renderer.js)
+  — `compileAsync( scene, camera, targetScene )` and the `compile` getter alias.
+- Audit causes `SPC-09` and `SPC-11` in
+  [the repository's Three.js performance audit](../../THREEJS-PERFORMANCE-AUDIT.md).

@@ -1,5 +1,6 @@
 import {
   childNode,
+  childNodes,
   getStaticPropertyName,
   nodeField,
   toReportNode,
@@ -13,17 +14,24 @@ import {
 } from "../utils/bindings.js";
 import { createRule } from "../utils/create-rule.js";
 import { collectHotCallbacks, getDirectHotCallback } from "../utils/hot-contexts.js";
-import { isThreeSource, MATERIAL_CONSTRUCTORS } from "../utils/three-api.js";
+import {
+  isMaterialConstructor,
+  RENDERER_COMPILE_MAX_ARGS,
+  RENDERER_COMPILE_METHODS,
+  RENDERER_COMPILE_MIN_ARGS,
+  RENDERER_CONSTRUCTORS,
+} from "../utils/three-api.js";
 
 export default createRule({
   name: "no-shader-recompile-in-render-loop",
   type: "suggestion",
-  description:
-    "Disallow requesting material shader recompilation in verified render-loop callbacks.",
+  description: "Disallow shader or pipeline compilation work in verified render-loop callbacks.",
   recommended: true,
   messages: {
     materialNeedsUpdateInLoop:
       "Setting {{material}}.needsUpdate to true inside this verified render-loop callback requests shader program work; move invalidation outside the repeated path.",
+    rendererCompileInLoop:
+      "Calling {{renderer}}.{{method}}() inside this verified render-loop callback traverses the scene and compiles shader or pipeline state; precompile outside the repeated path.",
   },
   create(context) {
     const { sourceCode } = context;
@@ -67,11 +75,7 @@ export default createRule({
           return;
         }
         const constructed = resolveConstructorImport(sourceCode, owner);
-        if (
-          constructed === null ||
-          !isThreeSource(constructed.source) ||
-          MATERIAL_CONSTRUCTORS[constructed.name] !== true
-        ) {
+        if (constructed === null || !isMaterialConstructor(constructed.source, constructed.name)) {
           return;
         }
 
@@ -79,6 +83,50 @@ export default createRule({
           node: toReportNode(assignment),
           messageId: "materialNeedsUpdateInLoop",
           data: { material: sourceCode.getText(toReportNode(owner)) },
+        });
+      },
+
+      CallExpression(node) {
+        const call: AstNode = node;
+        if (getDirectHotCallback(call, hotCallbacks) === null) {
+          return;
+        }
+
+        const callee = unwrapExpression(childNode(call, "callee"));
+        if (callee === null || callee.type !== "MemberExpression") {
+          return;
+        }
+        const method = getStaticPropertyName(callee);
+        if (method === null || RENDERER_COMPILE_METHODS[method] !== true) {
+          return;
+        }
+
+        // `compile` and `compileAsync` take a scene, a camera, and an optional
+        // target scene in both renderers. A four-argument call is not a call
+        // either renderer defines, and a spread hides its own expansion.
+        const args = childNodes(call, "arguments");
+        if (
+          args.length < RENDERER_COMPILE_MIN_ARGS ||
+          args.length > RENDERER_COMPILE_MAX_ARGS ||
+          args.some((argument) => argument.type === "SpreadElement")
+        ) {
+          return;
+        }
+
+        const receiver = unwrapExpression(childNode(callee, "object"));
+        const renderer = receiver === null ? null : resolveConstructorImport(sourceCode, receiver);
+        if (
+          receiver === null ||
+          renderer === null ||
+          RENDERER_CONSTRUCTORS[renderer.source] !== renderer.name
+        ) {
+          return;
+        }
+
+        context.report({
+          node: toReportNode(call),
+          messageId: "rendererCompileInLoop",
+          data: { renderer: sourceCode.getText(toReportNode(receiver)), method },
         });
       },
     };

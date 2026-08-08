@@ -19,21 +19,55 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DEFAULT_ESLINT = "10.8.0";
 
-/** Expected published files, other than the nine rule docs. */
+/** Expected published files, other than the eighteen rule docs. */
 const EXPECTED_ROOT_FILES = ["package.json", "README.md", "LICENSE"];
 
-/** Every rule that must ship a documentation page. */
+/** Every rule that must ship a documentation page, alphabetically. */
 const RULE_NAMES = [
+  "no-bounds-recompute-in-render-loop",
   "no-deep-reactive-three-object",
   "no-direct-device-pixel-ratio",
+  "no-ephemeral-dispose-listener-in-render-loop",
+  "no-geometry-recompute-in-render-loop",
   "no-new-in-jsx-props",
+  "no-non-numeric-vector-components",
+  "no-pmrem-generation-in-render-loop",
   "no-replace-object3d-transform",
   "no-set-state-in-use-frame",
   "no-shader-recompile-in-render-loop",
+  "no-synchronous-gpu-operation-in-render-loop",
+  "no-three-allocating-call-in-render-loop",
   "no-three-allocation-in-render-loop",
+  "no-three-loader-parse-in-render-loop",
   "no-transform-set-attribute-in-tick",
   "prefer-bvh-first-hit-only",
+  "prefer-squared-vector-magnitude",
 ];
+
+/** Rules `three/recommended` must enable. */
+const RECOMMENDED_RULE_NAMES = [
+  "no-deep-reactive-three-object",
+  "no-direct-device-pixel-ratio",
+  "no-ephemeral-dispose-listener-in-render-loop",
+  "no-non-numeric-vector-components",
+  "no-pmrem-generation-in-render-loop",
+  "no-replace-object3d-transform",
+  "no-set-state-in-use-frame",
+  "no-shader-recompile-in-render-loop",
+  "no-synchronous-gpu-operation-in-render-loop",
+  "no-three-allocating-call-in-render-loop",
+  "no-three-allocation-in-render-loop",
+  "no-three-loader-parse-in-render-loop",
+];
+
+/** Rules that genuinely offer editor suggestions. */
+const RULES_WITH_SUGGESTIONS = ["no-deep-reactive-three-object", "no-replace-object3d-transform"];
+
+/** Rules that report a correctness fault rather than a policy violation. */
+const PROBLEM_RULES = ["no-non-numeric-vector-components", "no-replace-object3d-transform"];
+
+/** Total published files: 104 `dist` entries + 18 docs + package.json, README, LICENSE. */
+const EXPECTED_FILE_COUNT = 125;
 
 /** Expected `dist` entries: one JS, one map, one declaration, one declaration map per module. */
 const DIST_MODULES = [
@@ -198,7 +232,7 @@ function assertManifest() {
   /** @type {any} */
   const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 
-  assert(manifest.name === "eslint-plugin-three", "package name changed");
+  assert(manifest.name === "eslint-plugin-threejslint", "package name changed");
   assert(manifest.type === "module", "package must be ESM (`type: module`)");
   assert(manifest.sideEffects === false, "package must declare `sideEffects: false`");
   assert(
@@ -247,7 +281,7 @@ function writeConsumer(consumerDir, tarballPath, eslintVersion, version) {
         dependencies: {
           "@react-three/eslint-plugin": "0.1.2",
           eslint: eslintVersion,
-          "eslint-plugin-three": `file:${tarballPath}`,
+          "eslint-plugin-threejslint": `file:${tarballPath}`,
           typescript: "6.0.3",
         },
       },
@@ -263,24 +297,44 @@ function writeConsumer(consumerDir, tarballPath, eslintVersion, version) {
     join(consumerDir, "check-runtime.mjs"),
     `import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import plugin from "eslint-plugin-three";
+import plugin from "eslint-plugin-threejslint";
 
 const manifest = JSON.parse(
-  readFileSync("node_modules/eslint-plugin-three/package.json", "utf8"),
+  readFileSync("node_modules/eslint-plugin-threejslint/package.json", "utf8"),
 );
 assert.equal(manifest.version, ${JSON.stringify(version)});
 assert.equal(manifest.dependencies, undefined);
-assert.equal(plugin.meta.name, "eslint-plugin-three");
+assert.equal(plugin.meta.name, "eslint-plugin-threejslint");
 assert.equal(plugin.meta.version, ${JSON.stringify(version)});
 assert.equal(plugin.meta.namespace, "three");
-assert.equal(Object.keys(plugin.rules).length, ${RULE_NAMES.length});
+assert.deepEqual(Object.keys(plugin.rules), ${JSON.stringify(RULE_NAMES)});
 assert.equal(plugin.configs.recommended.length, 1);
 assert.equal(plugin.configs.all.length, 1);
 assert.equal(plugin.configs.recommended[0].plugins.three, plugin);
 assert.equal(plugin.configs.all[0].plugins.three, plugin);
 
+// The preset partition is 12 recommended out of 18 total.
+assert.deepEqual(
+  Object.keys(plugin.configs.recommended[0].rules),
+  ${JSON.stringify(RECOMMENDED_RULE_NAMES.map((name) => `three/${name}`))},
+);
+assert.deepEqual(
+  Object.keys(plugin.configs.all[0].rules),
+  ${JSON.stringify(RULE_NAMES.map((name) => `three/${name}`))},
+);
+
+// Suggestion and problem metadata must stay exactly as documented.
+assert.deepEqual(
+  Object.keys(plugin.rules).filter((name) => plugin.rules[name].meta.hasSuggestions === true),
+  ${JSON.stringify(RULES_WITH_SUGGESTIONS)},
+);
+assert.deepEqual(
+  Object.keys(plugin.rules).filter((name) => plugin.rules[name].meta.type === "problem"),
+  ${JSON.stringify(PROBLEM_RULES)},
+);
+
 // The subpath export surface must stay closed.
-await assert.rejects(() => import("eslint-plugin-three/rules/index.js"));
+await assert.rejects(() => import("eslint-plugin-threejslint/rules/index.js"));
 console.log("runtime import ok");
 `,
   );
@@ -288,14 +342,36 @@ console.log("runtime import ok");
   // Proves the published declarations resolve and describe the real shape.
   writeFileSync(
     join(consumerDir, "check-types.ts"),
-    `import three from "eslint-plugin-three";
-import type { RecommendedRuleName, RuleName } from "eslint-plugin-three";
+    `import three from "eslint-plugin-threejslint";
+import type { RecommendedRuleName, RuleName } from "eslint-plugin-threejslint";
 
 const name: RuleName = "no-three-allocation-in-render-loop";
+const allOnly: RuleName = "prefer-squared-vector-magnitude";
+const boundsAllOnly: RuleName = "no-bounds-recompute-in-render-loop";
 const recommended: RecommendedRuleName = "no-direct-device-pixel-ratio";
+const newRecommended: RecommendedRuleName = "no-three-allocating-call-in-render-loop";
+const loaderRecommended: RecommendedRuleName = "no-three-loader-parse-in-render-loop";
 const namespace: "three" = three.meta.namespace;
 
-export const check = [name, recommended, namespace, three.configs.all[0].name] as const;
+// Each union must stay closed. An accidentally widened union makes its own
+// directive unused, which \`tsc\` then reports as an error.
+// @ts-expect-error not a rule this plugin exports
+const notARule: RuleName = "no-such-rule";
+// @ts-expect-error an all-only rule is not part of three/recommended
+const notRecommended: RecommendedRuleName = "prefer-squared-vector-magnitude";
+
+export const check = [
+  name,
+  allOnly,
+  boundsAllOnly,
+  recommended,
+  newRecommended,
+  loaderRecommended,
+  namespace,
+  notARule,
+  notRecommended,
+  three.configs.all[0].name,
+] as const;
 `,
   );
   writeFileSync(
@@ -322,7 +398,7 @@ export const check = [name, recommended, namespace, three.configs.all[0].name] a
     join(consumerDir, "eslint.config.mjs"),
     `import { defineConfig } from "eslint/config";
 import * as reactThree from "@react-three/eslint-plugin";
-import three from "eslint-plugin-three";
+import three from "eslint-plugin-threejslint";
 
 export default defineConfig(
   {
@@ -339,6 +415,9 @@ export default defineConfig(
       "@react-three/no-clone-in-loop": "error",
     },
   },
+  // The all preset is applied directly, and only to this one file, so the same
+  // source stays clean under recommended.
+  { files: ["src/all-only.js"], ...three.configs.all[0] },
 );
 `,
   );
@@ -365,6 +444,17 @@ renderer.setAnimationLoop(() => {
 
 const renderer = new WebGLRenderer();
 renderer.setAnimationLoop(() => new Vector3());
+`,
+  );
+
+  // Under recommended this file is clean; under the directly applied all preset it
+  // reports exactly the opt-in squared-magnitude rule.
+  writeFileSync(
+    join(consumerDir, "src", "all-only.js"),
+    `import { Vector3 } from "three";
+
+const velocity = new Vector3();
+export const stopped = velocity.length() === 0;
 `,
   );
 
@@ -415,7 +505,7 @@ function lintFixture(consumerDir, file, { expectFailure }) {
 }
 
 const { eslintVersion } = parseArgs(process.argv);
-const workDir = mkdtempSync(join(tmpdir(), "eslint-plugin-three-pack-"));
+const workDir = mkdtempSync(join(tmpdir(), "eslint-plugin-threejslint-pack-"));
 
 try {
   process.stdout.write(`pack-smoke: packing and testing against eslint@${eslintVersion}\n`);
@@ -433,6 +523,10 @@ try {
       `dist/${module}.d.ts.map`,
     ]),
   ]);
+  assert(
+    files.length === EXPECTED_FILE_COUNT,
+    `packed ${String(files.length)} files, expected ${String(EXPECTED_FILE_COUNT)}`,
+  );
   process.stdout.write(
     `pack-smoke: ${filename} contains exactly the expected ${files.length} files\n`,
   );
@@ -462,6 +556,12 @@ try {
   assert(
     r3fRules.length === 1 && r3fRules[0] === "@react-three/no-new-in-loop",
     `r3f fixture reported ${r3fRules.join(", ") || "(nothing)"}, expected only @react-three/no-new-in-loop`,
+  );
+
+  const allOnlyRules = lintFixture(consumerDir, "src/all-only.js", { expectFailure: true });
+  assert(
+    allOnlyRules.length === 1 && allOnlyRules[0] === "three/prefer-squared-vector-magnitude",
+    `all-only fixture reported ${allOnlyRules.join(", ") || "(nothing)"}, expected exactly three/prefer-squared-vector-magnitude`,
   );
   process.stdout.write("pack-smoke: lint behavior and pmndrs non-overlap ok\n");
 

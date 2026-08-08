@@ -13,6 +13,12 @@ raw.") and `avoidReactiveThreeInstance` ("Passing new {{constructor}} to Vue rea
 deep reactivity; use shallowReactive() or markRaw() when the Three.js instance should remain
 raw.").
 
+## Why this exists
+
+Vue's deep `ref()` and `reactive()` wrappers recursively proxy Three.js objects and their mutable
+graphs. That adds proxy overhead and can interfere with Three.js identity-sensitive state; shallow
+containers preserve the object while keeping Vue's reactivity boundary explicit.
+
 ## Detection
 
 A report fires only when every link below is provable from syntax:

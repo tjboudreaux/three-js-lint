@@ -4,6 +4,12 @@ Reports direct calls to a React `useState` setter or `useReducer` dispatch insid
 
 Message IDs: `stateSetterInUseFrame` ("Calling React state setter {{name}} inside useFrame schedules React work from the frame loop; mutate a ref or Three.js object instead.") and `reducerDispatchInUseFrame` ("Calling React reducer dispatch {{name}} inside useFrame schedules React work from the frame loop; mutate a ref or Three.js object instead.").
 
+## Why this exists
+
+React state updates inside `useFrame()` couple per-frame simulation to React reconciliation. That
+turns a render-loop tick into a component update and can schedule work at display refresh frequency;
+refs and direct Three.js mutation keep high-frequency state on the imperative side.
+
 ## Detection
 
 A report fires only when every link below is provable from syntax:

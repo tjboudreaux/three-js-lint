@@ -11,6 +11,12 @@ is `replaceObject3DTransform`:
 > Do not replace {{owner}}.{{property}}; preserve the Three.js transform object's identity with
 > .set() or .copy().
 
+## Why this exists
+
+Three.js creates and owns an `Object3D`'s transform objects as stable references. Replacing one with
+another object can detach engine bookkeeping, controls, or user code from the transform that Three.js
+updates; mutating the existing object preserves that identity contract.
+
 ## Detection
 
 A report requires all of the following to be statically provable:

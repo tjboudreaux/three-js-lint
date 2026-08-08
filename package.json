@@ -1,22 +1,23 @@
 {
-  "name": "eslint-plugin-three",
+  "name": "eslint-plugin-threejslint",
   "version": "0.1.0",
-  "description": "Conservative performance and rendering rules for Three.js and its ecosystem.",
+  "description": "Conservative, syntax-proven ESLint rules for Three.js performance and rendering.",
   "keywords": [
     "eslint",
     "eslintplugin",
     "three",
     "three.js",
+    "threejslint",
     "webgl",
     "performance"
   ],
-  "homepage": "https://github.com/tjboudreaux/eslint-plugin-three#readme",
+  "homepage": "https://github.com/tjboudreaux/three-js-lint#readme",
   "bugs": {
-    "url": "https://github.com/tjboudreaux/eslint-plugin-three/issues"
+    "url": "https://github.com/tjboudreaux/three-js-lint/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tjboudreaux/eslint-plugin-three.git"
+    "url": "git+https://github.com/tjboudreaux/three-js-lint.git"
   },
   "license": "MIT",
   "author": "tjboudreaux",

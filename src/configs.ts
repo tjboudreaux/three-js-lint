@@ -16,23 +16,38 @@ export const NAMESPACE = "three";
 const RECOMMENDED_RULES: Record<RecommendedRuleName, Linter.RuleSeverity> = {
   "no-deep-reactive-three-object": "error",
   "no-direct-device-pixel-ratio": "error",
+  "no-ephemeral-dispose-listener-in-render-loop": "error",
+  "no-non-numeric-vector-components": "error",
+  "no-pmrem-generation-in-render-loop": "error",
   "no-replace-object3d-transform": "error",
   "no-set-state-in-use-frame": "error",
   "no-shader-recompile-in-render-loop": "error",
+  "no-synchronous-gpu-operation-in-render-loop": "error",
+  "no-three-allocating-call-in-render-loop": "error",
   "no-three-allocation-in-render-loop": "error",
+  "no-three-loader-parse-in-render-loop": "error",
 };
 
 /** Rule severities for `three/all`, exhaustive over {@link RuleName}. */
 const ALL_RULES: Record<RuleName, Linter.RuleSeverity> = {
+  "no-bounds-recompute-in-render-loop": "error",
   "no-deep-reactive-three-object": "error",
   "no-direct-device-pixel-ratio": "error",
+  "no-ephemeral-dispose-listener-in-render-loop": "error",
+  "no-geometry-recompute-in-render-loop": "error",
   "no-new-in-jsx-props": "error",
+  "no-non-numeric-vector-components": "error",
+  "no-pmrem-generation-in-render-loop": "error",
   "no-replace-object3d-transform": "error",
   "no-set-state-in-use-frame": "error",
   "no-shader-recompile-in-render-loop": "error",
+  "no-synchronous-gpu-operation-in-render-loop": "error",
+  "no-three-allocating-call-in-render-loop": "error",
   "no-three-allocation-in-render-loop": "error",
+  "no-three-loader-parse-in-render-loop": "error",
   "no-transform-set-attribute-in-tick": "error",
   "prefer-bvh-first-hit-only": "error",
+  "prefer-squared-vector-magnitude": "error",
 };
 
 /**

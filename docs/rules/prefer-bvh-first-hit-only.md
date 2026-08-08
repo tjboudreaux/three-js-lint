@@ -15,6 +15,12 @@ The report uses message ID `preferFirstHitOnly`:
 `{{raycaster}}` is the source text of the cast receiver, and the report points at the cast call
 expression.
 
+## Why this exists
+
+When a raycast consumer needs only the nearest hit, collecting every intersection makes the BVH do
+more traversal and result work than the application can use. `firstHitOnly` aligns the accelerator's
+work with that consumer contract and avoids materializing irrelevant hits.
+
 ## Detection
 
 A cast is reported only when all five preconditions hold.
@@ -260,3 +266,4 @@ Enabled by `three/all` only. It is not part of `three/recommended`.
 
 - [three-mesh-bvh README](https://github.com/gkjohnson/three-mesh-bvh/blob/master/README.md) —
   the `acceleratedRaycast` setup and the `firstHitOnly` raycaster flag this rule points at.
+- Audit cause `RP-01` in [the repository's Three.js performance audit](../../THREEJS-PERFORMANCE-AUDIT.md).
