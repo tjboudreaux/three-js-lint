@@ -92,7 +92,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 ## Options
 
-This rule has no options. Its schema is `[]`, and it ignores any configuration passed to it.
+This rule has no options. Its schema is `[]`, so ESLint rejects any configured options.
 
 ## Suggestions
 
