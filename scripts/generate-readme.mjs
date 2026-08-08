@@ -22,7 +22,7 @@ import { format, resolveConfig } from "prettier";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const README_PATH = join(ROOT, "README.md");
-const DOCS_BASE_URL = "https://github.com/tjboudreaux/eslint-plugin-three/blob/main/docs/rules";
+const DOCS_BASE_URL = "https://github.com/tjboudreaux/three-js-lint/blob/main/docs/rules";
 
 const RULES_BEGIN = "<!-- BEGIN GENERATED RULES -->";
 const RULES_END = "<!-- END GENERATED RULES -->";

@@ -276,3 +276,17 @@ export function isWithin(node: AstNode, ancestor: AstNode): boolean {
 export function toReportNode(node: AstNode): ESTree.Node {
   return node as unknown as ESTree.Node;
 }
+
+/**
+ * Reads the arguments of a call or `new` expression, or `null` when any of them
+ * is spread.
+ *
+ * A spread hides its own expansion, so neither the argument count nor the value
+ * in any position can be established. Every rule that reasons about an exact
+ * arity or an exact argument slot therefore treats a spread as unresolved rather
+ * than as a matching call.
+ */
+export function getSpreadFreeArguments(call: AstNode): readonly AstNode[] | null {
+  const args = childNodes(call, "arguments");
+  return args.some((argument) => argument.type === "SpreadElement") ? null : args;
+}

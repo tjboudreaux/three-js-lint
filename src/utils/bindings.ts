@@ -4,6 +4,7 @@ import {
   childNode,
   childNodes,
   getIdentifierName,
+  isAstNode,
   getStaticPropertyName,
   getStaticStringValue,
   isFunctionNode,
@@ -55,6 +56,29 @@ export interface ImportedValue {
   /** Export name as declared by the module, not the local alias. */
   readonly name: string;
 }
+
+/**
+ * A value proven to be a named export of some module, without any judgement
+ * about whether this plugin recognizes that module.
+ *
+ * Used by the one rule that must accept a finite set of source-coupled official
+ * loader modules. {@link KnownSource} deliberately stays closed, so the caller
+ * supplies the exact source/name policy instead of widening it.
+ */
+export interface ScopedImportedValue {
+  /** Exact module specifier the value came from, verbatim. */
+  readonly source: string;
+  /** Export name as declared by the module, not the local alias. */
+  readonly name: string;
+}
+
+/**
+ * Decides whether an exact module specifier and exported name pair is accepted.
+ *
+ * Both arguments are exact strings: no prefix, suffix, or pattern matching is
+ * performed on the caller's behalf.
+ */
+export type ImportPredicate = (source: string, importedName: string) => boolean;
 
 /** A reference to a global value, together with how it was addressed. */
 export interface GlobalReference {
@@ -150,21 +174,18 @@ function isTypeOnly(node: AstNode): boolean {
   return nodeField(node, "importKind") === "type";
 }
 
-/** Reads the exact module specifier of an import declaration. */
-function getRecognizedSource(declaration: AstNode): KnownSource | null {
-  const specifier = getStaticStringValue(childNode(declaration, "source"));
-  if (specifier === null || !isKnownSource(specifier)) {
-    return null;
-  }
-  return specifier;
+/** Reads the exact module specifier of an import declaration, verbatim. */
+function getImportSource(declaration: AstNode): string | null {
+  return getStaticStringValue(childNode(declaration, "source"));
 }
 
 /**
- * Resolves a binding declared by `import { name as local }` from a known module.
+ * Resolves a binding declared by `import { name as local }` from any module.
  *
  * Default imports and namespace imports are not named values and return `null`.
+ * Source policy is applied by callers, not here.
  */
-export function getNamedImport(variable: Scope.Variable): ImportedValue | null {
+function getScopedNamedImport(variable: Scope.Variable): ScopedImportedValue | null {
   const def = variable.defs[0];
   if (variable.defs.length !== 1 || def === undefined || def.type !== "ImportBinding") {
     return null;
@@ -176,7 +197,7 @@ export function getNamedImport(variable: Scope.Variable): ImportedValue | null {
     return null;
   }
 
-  const source = getRecognizedSource(def.parent);
+  const source = getImportSource(def.parent);
   const imported = childNode(def.node, "imported");
   const name =
     imported === null ? null : (getIdentifierName(imported) ?? getStaticStringValue(imported));
@@ -186,8 +207,8 @@ export function getNamedImport(variable: Scope.Variable): ImportedValue | null {
   return { source, name };
 }
 
-/** Resolves a binding declared by `import * as ns` from a known module. */
-export function getNamespaceImport(variable: Scope.Variable): KnownSource | null {
+/** Resolves a binding declared by `import * as ns` from any module. */
+function getScopedNamespaceImport(variable: Scope.Variable): string | null {
   const def = variable.defs[0];
   if (variable.defs.length !== 1 || def === undefined || def.type !== "ImportBinding") {
     return null;
@@ -195,23 +216,45 @@ export function getNamespaceImport(variable: Scope.Variable): KnownSource | null
   if (def.node.type !== "ImportNamespaceSpecifier" || isTypeOnly(def.parent)) {
     return null;
   }
-  return getRecognizedSource(def.parent);
+  return getImportSource(def.parent);
 }
 
 /**
- * Resolves `ns.Name` where `ns` is a runtime namespace import of a known module.
+ * Resolves a binding declared by `import { name as local }` from a known module.
+ *
+ * Default imports and namespace imports are not named values and return `null`.
+ */
+export function getNamedImport(variable: Scope.Variable): ImportedValue | null {
+  const named = getScopedNamedImport(variable);
+  if (named === null || !isKnownSource(named.source)) {
+    return null;
+  }
+  return { source: named.source, name: named.name };
+}
+
+/** Resolves a binding declared by `import * as ns` from a known module. */
+export function getNamespaceImport(variable: Scope.Variable): KnownSource | null {
+  const source = getScopedNamespaceImport(variable);
+  return source !== null && isKnownSource(source) ? source : null;
+}
+
+/**
+ * Resolves `ns.Name` where `ns` is a runtime namespace import of any module.
  *
  * `member` must already be a `MemberExpression`; callers check that before
  * deciding to resolve a namespace access.
  */
-function resolveNamespaceMember(sourceCode: SourceCode, member: AstNode): ImportedValue | null {
+function resolveNamespaceMember(
+  sourceCode: SourceCode,
+  member: AstNode,
+): ScopedImportedValue | null {
   const name = getStaticPropertyName(member);
   const object = unwrapExpression(childNode(member, "object"));
   if (name === null || object === null || object.type !== "Identifier") {
     return null;
   }
   const variable = resolveVariable(sourceCode, object);
-  const source = variable === null ? null : getNamespaceImport(variable);
+  const source = variable === null ? null : getScopedNamespaceImport(variable);
   if (source === null) {
     return null;
   }
@@ -308,18 +351,19 @@ export function getArrayDestructuredBinding(
 }
 
 /**
- * Resolves `const { Name: local } = ns` where `ns` is a namespace import.
+ * Resolves `const { Name: local } = ns` where `ns` is a namespace import of any
+ * module.
  */
 function resolveDestructuredNamespace(
   sourceCode: SourceCode,
   variable: Scope.Variable,
-): ImportedValue | null {
+): ScopedImportedValue | null {
   const destructured = getDestructuredBinding(variable);
   if (destructured === null || destructured.initializer.type !== "Identifier") {
     return null;
   }
   const namespaceVariable = resolveVariable(sourceCode, destructured.initializer);
-  const source = namespaceVariable === null ? null : getNamespaceImport(namespaceVariable);
+  const source = namespaceVariable === null ? null : getScopedNamespaceImport(namespaceVariable);
   if (source === null) {
     return null;
   }
@@ -327,18 +371,21 @@ function resolveDestructuredNamespace(
 }
 
 /**
- * Resolves the import identity of the value an expression denotes.
+ * Resolves the exact module and export name a value denotes, applying no source
+ * policy at all.
  *
- * Accepts a direct named import, a namespace member access, and exactly one
- * immutable `const` hop (identifier alias, namespace member alias, or object
+ * This is the single traversal every import-identity helper shares. It accepts a
+ * direct named import, a namespace member access, and exactly one immutable
+ * `const` hop (identifier alias, namespace member alias, or object
  * destructuring). Anything requiring a second hop, a mutable binding, a dynamic
- * member name, a type-only import, or `require()` stays unresolved.
+ * member name, a type-only import, a default import, or `require()` stays
+ * unresolved.
  */
-export function resolveImportedValue(
+function resolveScopedImport(
   sourceCode: SourceCode,
   node: unknown,
-  allowAliasHop = true,
-): ImportedValue | null {
+  allowAliasHop: boolean,
+): ScopedImportedValue | null {
   const target = unwrapExpression(node);
   if (target?.type === "MemberExpression") {
     return resolveNamespaceMember(sourceCode, target);
@@ -352,7 +399,7 @@ export function resolveImportedValue(
     return null;
   }
 
-  const named = getNamedImport(variable);
+  const named = getScopedNamedImport(variable);
   if (named !== null) {
     return named;
   }
@@ -369,23 +416,86 @@ export function resolveImportedValue(
   if (initializer === null) {
     return null;
   }
-  return resolveImportedValue(sourceCode, initializer, false);
+  return resolveScopedImport(sourceCode, initializer, false);
 }
 
 /**
- * Resolves the import identity of the constructor that produced a value.
+ * Resolves the import identity of the value an expression denotes, restricted to
+ * the modules this plugin recognizes.
  *
- * Matches a direct `new X()` expression and an immutable binding initialized
- * from one, plus one immutable alias hop between bindings.
+ * Accepts a direct named import, a namespace member access, and exactly one
+ * immutable `const` hop (identifier alias, namespace member alias, or object
+ * destructuring). Anything requiring a second hop, a mutable binding, a dynamic
+ * member name, a type-only import, or `require()` stays unresolved. A specifier
+ * outside {@link KnownSource} — including `three/addons`, a direct addon module,
+ * a compatibility example path, and any deep `three/src/...` path — is never
+ * recognized here.
  */
-export function resolveConstructorImport(
+export function resolveImportedValue(
   sourceCode: SourceCode,
   node: unknown,
   allowAliasHop = true,
 ): ImportedValue | null {
-  const target = unwrapExpression(node);
+  const resolved = resolveScopedImport(sourceCode, node, allowAliasHop);
+  if (resolved === null || !isKnownSource(resolved.source)) {
+    return null;
+  }
+  return { source: resolved.source, name: resolved.name };
+}
+
+/**
+ * Resolves the import identity of a value against a caller-supplied source and
+ * name policy.
+ *
+ * Structural resolution is identical to {@link resolveImportedValue}; only the
+ * accepted `(source, importedName)` pairs differ. `predicate` receives exact
+ * strings and is the only place a module outside {@link KnownSource} can be
+ * admitted.
+ */
+export function resolveScopedImportedValue(
+  sourceCode: SourceCode,
+  node: unknown,
+  predicate: ImportPredicate,
+): ScopedImportedValue | null {
+  const resolved = resolveScopedImport(sourceCode, node, true);
+  if (resolved === null || !predicate(resolved.source, resolved.name)) {
+    return null;
+  }
+  return resolved;
+}
+
+/** How a value was constructed, and which binding holds that construction. */
+export interface ConstructionDetails {
+  /** The `NewExpression` that produced the value; always an actual `new` call. */
+  readonly newExpression: AstNode;
+  /**
+   * The immutable binding whose initializer is exactly {@link newExpression}, or
+   * `null` for a direct `new` expression.
+   *
+   * Never a later receiver alias: for `const host = new Texture(); const ref =
+   * host;` reached through `ref`, this is `host`. Rules that ask *where* a value
+   * was constructed therefore see the construction site, not the alias site.
+   */
+  readonly constructionVariable: Scope.Variable | null;
+}
+
+/**
+ * Resolves the construction behind a value, following a direct `new` expression
+ * or an immutable binding initialized from one, plus one immutable receiver
+ * alias hop.
+ *
+ * Purely structural: no module or class policy is applied. Callers resolve
+ * `newExpression.callee` themselves, through {@link resolveImportedValue},
+ * {@link resolveScopedImportedValue}, or {@link resolveGlobalReference}.
+ */
+export function getConstructionDetails(
+  sourceCode: SourceCode,
+  expression: unknown,
+  allowAliasHop = true,
+): ConstructionDetails | null {
+  const target = unwrapExpression(expression);
   if (target?.type === "NewExpression") {
-    return resolveImportedValue(sourceCode, childNode(target, "callee"));
+    return { newExpression: target, constructionVariable: null };
   }
   if (target?.type !== "Identifier") {
     return null;
@@ -400,12 +510,30 @@ export function resolveConstructorImport(
     return null;
   }
   if (initializer.type === "NewExpression") {
-    return resolveImportedValue(sourceCode, childNode(initializer, "callee"));
+    return { newExpression: initializer, constructionVariable: variable };
   }
   if (!allowAliasHop) {
     return null;
   }
-  return resolveConstructorImport(sourceCode, initializer, false);
+  return getConstructionDetails(sourceCode, initializer, false);
+}
+
+/**
+ * Resolves the import identity of the constructor that produced a value.
+ *
+ * Matches a direct `new X()` expression and an immutable binding initialized
+ * from one, plus one immutable alias hop between bindings.
+ */
+export function resolveConstructorImport(
+  sourceCode: SourceCode,
+  node: unknown,
+  allowAliasHop = true,
+): ImportedValue | null {
+  const details = getConstructionDetails(sourceCode, node, allowAliasHop);
+  if (details === null) {
+    return null;
+  }
+  return resolveImportedValue(sourceCode, childNode(details.newExpression, "callee"));
 }
 
 /**
@@ -527,4 +655,50 @@ export function isScopeLocalBinding(variable: Scope.Variable): boolean {
   return variable.references.every(
     (reference) => !reference.isRead() || reference.from.variableScope === ownerScope,
   );
+}
+
+/**
+ * True when an expression is statically `null` or `undefined`.
+ *
+ * Recognizes the `null` literal, a `void` expression, and an `undefined` that no
+ * local binding shadows. An identifier, a call, or a member access is not
+ * statically nullish, because its value cannot be read from syntax.
+ */
+export function isStaticallyNullish(sourceCode: SourceCode, node: unknown): boolean {
+  const target = unwrapExpression(node);
+  if (target === null) {
+    return false;
+  }
+  if (target.type === "Literal") {
+    return (
+      nodeField(target, "value") === null &&
+      nodeField(target, "regex") === undefined &&
+      nodeField(target, "bigint") === undefined
+    );
+  }
+  if (target.type === "UnaryExpression") {
+    return nodeField(target, "operator") === "void";
+  }
+  if (target.type !== "Identifier") {
+    return false;
+  }
+  const global = resolveGlobalReference(sourceCode, target);
+  return global !== null && global.name === "undefined";
+}
+
+/**
+ * Returns the AST node that declares a binding.
+ *
+ * Rules use this to ask *where* a binding was introduced, for example whether a
+ * listener function is declared inside the callback that registers it. The node
+ * is read through the same structural guard as every other parser-supplied value,
+ * so an unexpected definition shape resolves to `null` rather than crashing.
+ */
+export function getDeclarationNode(variable: Scope.Variable): AstNode | null {
+  const definition = variable.defs[0];
+  if (definition === undefined) {
+    return null;
+  }
+  const declaration: unknown = definition.node;
+  return isAstNode(declaration) ? declaration : null;
 }

@@ -1,8 +1,10 @@
+import allocatingCallRule from "../src/rules/no-three-allocating-call-in-render-loop.js";
 import allocationRule from "../src/rules/no-three-allocation-in-render-loop.js";
 import bvhRule from "../src/rules/prefer-bvh-first-hit-only.js";
 import dprRule from "../src/rules/no-direct-device-pixel-ratio.js";
 import jsxRule from "../src/rules/no-new-in-jsx-props.js";
 import setAttributeRule from "../src/rules/no-transform-set-attribute-in-tick.js";
+import setStateRule from "../src/rules/no-set-state-in-use-frame.js";
 import transformRule from "../src/rules/no-replace-object3d-transform.js";
 import {
   createRuleTester,
@@ -792,6 +794,1166 @@ mesh.position = new Vector3(...parts, 3);`,
           data: { owner: "mesh", property: "position" },
           line: 4,
           column: 1,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+/*
+ * Renderer sort comparators and cross-renderer object render hooks are the two
+ * dispatch families added alongside the expanded rule surface. Both are proven
+ * from the registration site, never from a callback's own name, and both are
+ * included in every rule's hot-callback set.
+ */
+ruleTester.run("shared contract: renderer sort callbacks", allocationRule, {
+  valid: [
+    {
+      name: "sort setter with no argument",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setOpaqueSort();`,
+    },
+    {
+      name: "sort setter cleared with null",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setOpaqueSort(null);`,
+    },
+    {
+      name: "sort setter with two arguments",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setTransparentSort(() => {
+  new Vector3();
+}, extra);`,
+    },
+    {
+      name: "sort setter with a spread argument",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+const parts = [compare];
+renderer.setOpaqueSort(...parts);`,
+    },
+    {
+      name: "sort setter on an unresolved receiver",
+      code: `import { Vector3 } from "three";
+unknownRenderer.setOpaqueSort(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "sort setter on a mismatched renderer source",
+      code: `import { Vector3, WebGPURenderer } from "three";
+const renderer = new WebGPURenderer();
+renderer.setOpaqueSort(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "sort comparator assigned as a property",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setOpaqueSort = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "sort setter reached through a dynamic method name",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer[methodName](() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "allocation nested inside a sort comparator",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setOpaqueSort((a, b) => {
+  queue(() => {
+    new Vector3();
+  });
+  return a.z - b.z;
+});`,
+    },
+  ],
+  invalid: [
+    {
+      name: "opaque sort comparator on a WebGL renderer",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer.setOpaqueSort((a, b) => {
+  new Vector3();
+  return a.z - b.z;
+});`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "transparent sort comparator on a WebGPU renderer",
+      code: `import { Vector3, WebGPURenderer } from "three/webgpu";
+const renderer = new WebGPURenderer();
+renderer.setTransparentSort((a, b) => {
+  new Vector3();
+  return a.z - b.z;
+});`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "sort comparator resolved through an immutable callback alias",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+const compare = (a, b) => {
+  new Vector3();
+  return a.z - b.z;
+};
+renderer.setOpaqueSort(compare);`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "sort setter reached through a computed string literal",
+      code: `import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+renderer["setOpaqueSort"]((a, b) => {
+  new Vector3();
+  return a.z - b.z;
+});`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+ruleTester.run("shared contract: object render hooks", allocationRule, {
+  valid: [
+    {
+      name: "LineLoop is not a proven render-hook receiver",
+      code: `import { LineLoop, Vector3 } from "three";
+const object = new LineLoop();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "onBeforeShadow is renderer-specific and not cataloged",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onBeforeShadow = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "onAfterShadow is renderer-specific and not cataloged",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onAfterShadow = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "plain Object3D is outside the render-hook catalog",
+      code: `import { Object3D, Vector3 } from "three";
+const object = new Object3D();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "Group is outside the render-hook catalog",
+      code: `import { Group, Vector3 } from "three";
+const object = new Group();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a camera is outside the render-hook catalog",
+      code: `import { PerspectiveCamera, Vector3 } from "three";
+const object = new PerspectiveCamera();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a non-renderable helper is outside the render-hook catalog",
+      code: `import { ArrowHelper, Vector3 } from "three";
+const object = new ArrowHelper();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "assignment on a direct construction",
+      code: `import { Mesh, Vector3 } from "three";
+new Mesh().onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "assignment on a local subclass instance",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {}
+const object = new CustomMesh();
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a subclass of a subclass is a second local layer",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {}
+class DeeperMesh extends CustomMesh {
+  onBeforeRender() {
+    new Vector3();
+  }
+}`,
+    },
+    {
+      name: "a getter is not an installed callback",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  get onBeforeRender() {
+    new Vector3();
+    return null;
+  }
+}`,
+    },
+    {
+      name: "a setter is not an installed callback",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  set onBeforeRender(value) {
+    new Vector3();
+  }
+}`,
+    },
+    {
+      name: "a static method is never dispatched per object",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  static onBeforeRender() {
+    new Vector3();
+  }
+}`,
+    },
+    {
+      name: "a static field is never dispatched per object",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  static onBeforeRender = () => {
+    new Vector3();
+  };
+}`,
+    },
+    {
+      name: "a dynamic class member key",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  [hookName]() {
+    new Vector3();
+  }
+}`,
+    },
+    {
+      name: "a compound assignment is not a plain install",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onBeforeRender ||= () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a logical assignment is not a plain install",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onBeforeRender ??= () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a prototype rewrite is not a per-object install",
+      code: `import { Mesh, Vector3 } from "three";
+Mesh.prototype.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a dynamic hook name",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object[hookName] = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a mutable receiver binding",
+      code: `import { Mesh, Vector3 } from "three";
+let object = new Mesh();
+object = other;
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "a receiver reached through two alias hops",
+      code: `import { Mesh, Vector3 } from "three";
+const created = new Mesh();
+const middle = created;
+const object = middle;
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+    },
+    {
+      name: "an unresolved right-hand side",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onBeforeRender = handlers.step;`,
+    },
+    {
+      name: "allocation nested inside a render hook",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object.onBeforeRender = () => {
+  queue(() => {
+    new Vector3();
+  });
+};`,
+    },
+  ],
+  invalid: [
+    {
+      name: "AxesHelper render hook assignment",
+      code: `import { AxesHelper, Vector3 } from "three";
+const helper = new AxesHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Box3Helper render hook assignment",
+      code: `import { Box3Helper, Vector3 } from "three";
+const helper = new Box3Helper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "BoxHelper render hook assignment",
+      code: `import { BoxHelper, Vector3 } from "three";
+const helper = new BoxHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "CameraHelper render hook assignment",
+      code: `import { CameraHelper, Vector3 } from "three";
+const helper = new CameraHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "GridHelper render hook assignment",
+      code: `import { GridHelper, Vector3 } from "three";
+const helper = new GridHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "PlaneHelper render hook assignment",
+      code: `import { PlaneHelper, Vector3 } from "three";
+const helper = new PlaneHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "PointLightHelper render hook assignment",
+      code: `import { PointLightHelper, Vector3 } from "three";
+const helper = new PointLightHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "PolarGridHelper render hook assignment",
+      code: `import { PolarGridHelper, Vector3 } from "three";
+const helper = new PolarGridHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "SkeletonHelper render hook assignment",
+      code: `import { SkeletonHelper, Vector3 } from "three";
+const helper = new SkeletonHelper();
+helper.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "BoxHelper direct subclass render hook method",
+      code: `import { BoxHelper, Vector3 } from "three";
+class CustomBoxHelper extends BoxHelper {
+  onAfterRender() {
+    new Vector3();
+  }
+}`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "PlaneHelper direct subclass render hook method",
+      code: `import { PlaneHelper, Vector3 } from "three";
+class CustomPlaneHelper extends PlaneHelper {
+  onAfterRender() {
+    new Vector3();
+  }
+}`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "PointLightHelper direct subclass render hook method",
+      code: `import { PointLightHelper, Vector3 } from "three";
+class CustomPointLightHelper extends PointLightHelper {
+  onAfterRender() {
+    new Vector3();
+  }
+}`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "BatchedMesh render hook assignment",
+      code: `import { BatchedMesh, Vector3 } from "three/webgpu";
+const object = new BatchedMesh();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "InstancedMesh render hook assignment",
+      code: `import { InstancedMesh, Vector3 } from "three/webgpu";
+const object = new InstancedMesh();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Line render hook assignment",
+      code: `import { Line, Vector3 } from "three/webgpu";
+const object = new Line();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "LineSegments render hook assignment",
+      code: `import { LineSegments, Vector3 } from "three/webgpu";
+const object = new LineSegments();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Mesh render hook assignment",
+      code: `import { Mesh, Vector3 } from "three/webgpu";
+const object = new Mesh();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Points render hook assignment",
+      code: `import { Points, Vector3 } from "three/webgpu";
+const object = new Points();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Scene render hook assignment",
+      code: `import { Scene, Vector3 } from "three/webgpu";
+const object = new Scene();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "SkinnedMesh render hook assignment",
+      code: `import { SkinnedMesh, Vector3 } from "three/webgpu";
+const object = new SkinnedMesh();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "Sprite render hook assignment",
+      code: `import { Sprite, Vector3 } from "three/webgpu";
+const object = new Sprite();
+object.onAfterRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook resolved through an immutable callback alias",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+const step = () => {
+  new Vector3();
+};
+object.onBeforeRender = step;`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook installed through one receiver alias hop",
+      code: `import { Mesh, Vector3 } from "three";
+const created = new Mesh();
+const object = created;
+object.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook name reached through a computed string literal",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object["onBeforeRender"] = () => {
+  new Vector3();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook declared as a direct subclass method",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  onBeforeRender() {
+    new Vector3();
+  }
+}`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook declared as a non-static class field",
+      code: `import { Mesh, Vector3 } from "three";
+class CustomMesh extends Mesh {
+  onAfterRender = () => {
+    new Vector3();
+  };
+}`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render hook declared on an immutable class expression",
+      code: `import { Mesh, Vector3 } from "three";
+const CustomMesh = class extends Mesh {
+  onBeforeRender() {
+    new Vector3();
+  }
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 5,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "TypeScript non-null receiver stays transparent",
+      code: `import { Mesh, Vector3 } from "three";
+const object = new Mesh();
+object!.onBeforeRender = () => {
+  new Vector3();
+};`,
+      output: null,
+      languageOptions: tsLanguageOptions,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 4,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+/*
+ * One function can be reached by several dispatch mechanisms, so registrations
+ * merge into a kind set rather than overwriting. These fixtures pin that the merge
+ * is order-independent and that each rule still selects the kinds it cares about.
+ */
+ruleTester.run("shared contract: overlapping hot kinds keep useFrame", setStateRule, {
+  valid: [],
+  invalid: [
+    {
+      name: "a callback registered as both useFrame and a sort comparator",
+      code: `import { useFrame } from "@react-three/fiber";
+import { useState } from "react";
+import { WebGLRenderer } from "three";
+const [count, setCount] = useState(0);
+const renderer = new WebGLRenderer();
+const step = () => {
+  setCount(1);
+};
+renderer.setOpaqueSort(step);
+useFrame(step);`,
+      output: null,
+      errors: [
+        {
+          messageId: "stateSetterInUseFrame",
+          data: { name: "setCount" },
+          line: 7,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "a callback registered as both useFrame and an object render hook",
+      code: `import { useFrame } from "@react-three/fiber";
+import { useState } from "react";
+import { Mesh } from "three";
+const [count, setCount] = useState(0);
+const mesh = new Mesh();
+const step = () => {
+  setCount(1);
+};
+mesh.onBeforeRender = step;
+useFrame(step);`,
+      output: null,
+      errors: [
+        {
+          messageId: "stateSetterInUseFrame",
+          data: { name: "setCount" },
+          line: 7,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+ruleTester.run("shared contract: overlapping hot kinds keep the other family", allocationRule, {
+  valid: [
+    {
+      name: "a useFrame-only callback stays delegated to the upstream plugin",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Vector3 } from "three";
+useFrame(() => {
+  new Vector3();
+});`,
+    },
+  ],
+  invalid: [
+    {
+      name: "sort registration survives a later useFrame registration",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+const step = () => {
+  new Vector3();
+};
+renderer.setOpaqueSort(step);
+useFrame(step);`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "sort registration survives an earlier useFrame registration",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+const step = () => {
+  new Vector3();
+};
+useFrame(step);
+renderer.setOpaqueSort(step);`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "render-hook registration survives a useFrame registration",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Mesh, Vector3 } from "three";
+const mesh = new Mesh();
+const step = () => {
+  new Vector3();
+};
+useFrame(step);
+mesh.onAfterRender = step;`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+ruleTester.run("shared contract: method-call allocation includes useFrame", allocatingCallRule, {
+  valid: [
+    {
+      name: "a stable scratch target in a useFrame callback",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Vector3 } from "three";
+const value = new Vector3();
+const scratch = [];
+useFrame(() => {
+  value.toArray(scratch);
+});`,
+    },
+  ],
+  invalid: [
+    {
+      name: "a missing reusable target in a useFrame callback",
+      code: `import { useFrame } from "@react-three/fiber";
+import { Vector3 } from "three";
+const value = new Vector3();
+useFrame(() => {
+  value.toArray();
+});`,
+      output: null,
+      errors: [
+        {
+          messageId: "missingReusableTargetInLoop",
+          data: { receiver: "value", method: "toArray" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+    {
+      name: "a missing reusable target in an object render hook",
+      code: `import { Mesh, Vector3 } from "three";
+const value = new Vector3();
+const mesh = new Mesh();
+mesh.onBeforeRender = () => {
+  value.toArray();
+};`,
+      output: null,
+      errors: [
+        {
+          messageId: "missingReusableTargetInLoop",
+          data: { receiver: "value", method: "toArray" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+      ],
+    },
+  ],
+});
+
+/*
+ * The ordinary resolver's source list stays closed even though one rule may accept
+ * official loader modules through a caller-supplied predicate. The allocation rule
+ * uses `resolveImportedValue`, so these fixtures pin that widening the loader rule
+ * did not widen anything else.
+ */
+ruleTester.run("shared contract: ordinary resolver source boundary", allocationRule, {
+  valid: [
+    {
+      name: "the addons barrel is not a recognized source",
+      code: `import { Vector3 } from "three/addons";
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "a direct addon loader module is not a recognized source",
+      code: `import { Vector3 } from "three/addons/loaders/OBJLoader.js";
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "a compatibility example path is not a recognized source",
+      code: `import { Vector3 } from "three/examples/jsm/loaders/OBJLoader.js";
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "an arbitrary deep three path is not a recognized source",
+      code: `import { Vector3 } from "three/src/math/Vector3.js";
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+    },
+    {
+      name: "the tsl subpath is not a recognized source",
+      code: `import { Vector3 } from "three/tsl";
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+    },
+  ],
+  invalid: [],
+});
+
+/*
+ * One traversal per file serves every rule lookup, and every hot callback in the
+ * file is collected by it — including two different dispatch families side by side.
+ */
+ruleTester.run("shared contract: one traversal collects every callback", allocationRule, {
+  valid: [],
+  invalid: [
+    {
+      name: "two callbacks from different families in one file",
+      code: `import { Mesh, Vector3, WebGLRenderer } from "three";
+const renderer = new WebGLRenderer();
+const mesh = new Mesh();
+renderer.setOpaqueSort((a, b) => {
+  new Vector3();
+  return a.z - b.z;
+});
+mesh.onAfterRender = () => {
+  new Vector3();
+};
+requestAnimationFrame(() => {
+  new Vector3();
+});`,
+      output: null,
+      errors: [
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 5,
+          column: 3,
+          suggestions: [],
+        },
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 9,
+          column: 3,
+          suggestions: [],
+        },
+        {
+          messageId: "newThreeObjectInLoop",
+          data: { constructor: "Vector3" },
+          line: 12,
+          column: 3,
           suggestions: [],
         },
       ],

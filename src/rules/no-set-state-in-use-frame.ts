@@ -73,9 +73,11 @@ export default createRule({
   },
   create(context) {
     const { sourceCode } = context;
+    // A callback can be reached by several mechanisms, so the `useFrame` kind is
+    // selected out of each callback's kind set rather than compared for equality.
     const useFrameCallbacks = new Map(
-      [...collectHotCallbacks(sourceCode, { includeUseFrame: true })].filter(
-        ([, kind]) => kind === "useFrame",
+      [...collectHotCallbacks(sourceCode, { includeUseFrame: true })].filter(([, kinds]) =>
+        kinds.has("useFrame"),
       ),
     );
     if (useFrameCallbacks.size === 0) {

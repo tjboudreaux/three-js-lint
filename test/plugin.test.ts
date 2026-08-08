@@ -7,15 +7,24 @@ import { rules, type RuleName } from "../src/rules/index.js";
 
 /** Rule IDs in the exact order the registry must expose them. */
 const EXPECTED_RULE_NAMES: readonly RuleName[] = [
+  "no-bounds-recompute-in-render-loop",
   "no-deep-reactive-three-object",
   "no-direct-device-pixel-ratio",
+  "no-ephemeral-dispose-listener-in-render-loop",
+  "no-geometry-recompute-in-render-loop",
   "no-new-in-jsx-props",
+  "no-non-numeric-vector-components",
+  "no-pmrem-generation-in-render-loop",
   "no-replace-object3d-transform",
   "no-set-state-in-use-frame",
   "no-shader-recompile-in-render-loop",
+  "no-synchronous-gpu-operation-in-render-loop",
+  "no-three-allocating-call-in-render-loop",
   "no-three-allocation-in-render-loop",
+  "no-three-loader-parse-in-render-loop",
   "no-transform-set-attribute-in-tick",
   "prefer-bvh-first-hit-only",
+  "prefer-squared-vector-magnitude",
 ];
 
 /** Rules that genuinely offer editor suggestions. */
@@ -29,14 +38,14 @@ const manifest: unknown = JSON.parse(
 );
 
 describe("plugin metadata", () => {
-  it("exposes exactly the nine documented rules, sorted", () => {
+  it("exposes exactly the eighteen documented rules, sorted", () => {
     expect(Object.keys(rules)).toStrictEqual([...EXPECTED_RULE_NAMES]);
     expect(Object.keys(plugin.rules)).toStrictEqual([...EXPECTED_RULE_NAMES]);
   });
 
   it("reports the package name, version, and namespace", () => {
     expect(manifest).toMatchObject({ name: plugin.meta.name, version: plugin.meta.version });
-    expect(plugin.meta.name).toBe("eslint-plugin-three");
+    expect(plugin.meta.name).toBe("eslint-plugin-threejslint");
     expect(plugin.meta.namespace).toBe("three");
   });
 
@@ -48,7 +57,7 @@ describe("plugin metadata", () => {
 describe("rule metadata", () => {
   it.each(EXPECTED_RULE_NAMES)("%s declares a docs url matching its file name", (name) => {
     expect(rules[name].meta?.docs?.url).toBe(
-      `https://github.com/tjboudreaux/eslint-plugin-three/blob/main/docs/rules/${name}.md`,
+      `https://github.com/tjboudreaux/three-js-lint/blob/main/docs/rules/${name}.md`,
     );
   });
 
@@ -83,8 +92,63 @@ describe("rule metadata", () => {
     expect(type === "problem" || type === "suggestion").toBe(true);
   });
 
-  it("marks only the transform-identity rule as a correctness problem", () => {
+  it("marks exactly the two correctness problems", () => {
     const problems = EXPECTED_RULE_NAMES.filter((name) => rules[name].meta?.type === "problem");
-    expect(problems).toStrictEqual(["no-replace-object3d-transform"]);
+    expect(problems).toStrictEqual([
+      "no-non-numeric-vector-components",
+      "no-replace-object3d-transform",
+    ]);
+  });
+
+  it("marks exactly the two suggestion-capable rules", () => {
+    const suggesting = EXPECTED_RULE_NAMES.filter(
+      (name) => rules[name].meta?.hasSuggestions === true,
+    );
+    expect(suggesting).toStrictEqual([...RULES_WITH_SUGGESTIONS]);
+  });
+
+  it.each([
+    [
+      "no-shader-recompile-in-render-loop",
+      "Disallow shader or pipeline compilation work in verified render-loop callbacks.",
+    ],
+    [
+      "no-ephemeral-dispose-listener-in-render-loop",
+      "Disallow ephemeral Three.js dispose listeners in verified render-loop callbacks.",
+    ],
+    [
+      "no-non-numeric-vector-components",
+      "Disallow statically non-numeric values in Three.js vector components.",
+    ],
+    [
+      "no-pmrem-generation-in-render-loop",
+      "Disallow PMREM generation in verified render-loop callbacks.",
+    ],
+    [
+      "no-synchronous-gpu-operation-in-render-loop",
+      "Disallow synchronous GPU operations in verified render-loop callbacks.",
+    ],
+    [
+      "no-three-allocating-call-in-render-loop",
+      "Disallow allocation-returning Three.js method calls in verified render-loop callbacks.",
+    ],
+    [
+      "no-three-loader-parse-in-render-loop",
+      "Disallow synchronous Three.js loader parsing in verified render-loop callbacks.",
+    ],
+    [
+      "no-bounds-recompute-in-render-loop",
+      "Disallow full-scan Three.js bounds recomputation in verified render-loop callbacks.",
+    ],
+    [
+      "no-geometry-recompute-in-render-loop",
+      "Disallow full-scan Three.js geometry recomputation in verified render-loop callbacks.",
+    ],
+    [
+      "prefer-squared-vector-magnitude",
+      "Prefer squared Three.js vector magnitudes in zero comparisons.",
+    ],
+  ] as const)("%s declares its exact description", (name, description) => {
+    expect(rules[name].meta?.docs?.description).toBe(description);
   });
 });

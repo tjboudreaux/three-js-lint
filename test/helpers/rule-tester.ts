@@ -21,6 +21,11 @@ interface EslintModule {
   readonly ESLint: typeof ESLint;
 }
 
+/** The subset of an ESLint package's `config` entry point this suite uses. */
+interface EslintConfigModule {
+  readonly defineConfig: (...configs: readonly unknown[]) => Linter.Config[];
+}
+
 // The package name is only known at runtime, so its shape cannot be imported.
 // Every pinned ESLint in the matrix exports these two classes from its CJS entry.
 const eslintModule = nodeRequire(eslintPackageName) as EslintModule;
@@ -30,6 +35,17 @@ export const RuleTester = eslintModule.RuleTester;
 
 /** `ESLint` Node API class from the ESLint package currently under test. */
 export const ESLintApi = eslintModule.ESLint;
+
+// `defineConfig` lives on the `eslint/config` subpath rather than the main entry.
+const eslintConfigModule = nodeRequire(`${eslintPackageName}/config`) as EslintConfigModule;
+
+/**
+ * `defineConfig` from the ESLint package currently under test.
+ *
+ * Needed to exercise a string `extends` the way the README documents it: a raw
+ * flat-config array rejects `extends` outright.
+ */
+export const defineConfig = eslintConfigModule.defineConfig;
 
 // RuleTester emits its cases through whichever test framework is registered.
 RuleTester.describe = describe;

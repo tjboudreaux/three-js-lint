@@ -8,6 +8,12 @@ common causes of poor WebGL frame rates. Bounding the ratio — for example with
 cannot perceive. This rule reports `setPixelRatio(value)` calls where the receiver is provably a
 Three.js renderer and `value` provably forwards the unbounded device ratio.
 
+## Why this exists
+
+An uncapped device pixel ratio can multiply the renderer's drawing-buffer dimensions and fragment
+work, especially on high-density displays. The rule keeps quality policy explicit so applications can
+choose a cap or adaptive strategy for their actual GPU and frame budget.
+
 ## Detection
 
 A report requires all of the following to be provable from syntax:
@@ -113,3 +119,4 @@ Enabled by `three/recommended` and `three/all`.
 
 - [Three.js manual: Responsive WebGL pages](https://threejs.org/manual/en/responsive.html)
 - [React Three Fiber: Scaling performance](https://r3f.docs.pmnd.rs/advanced/scaling-performance)
+- Audit cause `AAM-13` in [the repository's Three.js performance audit](../../THREEJS-PERFORMANCE-AUDIT.md).

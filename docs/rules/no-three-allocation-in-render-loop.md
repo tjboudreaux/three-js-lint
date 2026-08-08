@@ -8,6 +8,12 @@ or similar methods. This rule reports `new` expressions whose constructor provab
 Three.js, and `.clone()` calls on provably Three-constructed bindings, when they appear directly in
 a callback the plugin can prove runs on a render loop.
 
+## Why this exists
+
+Allocating Three.js objects or clones per frame creates garbage at the same rate as the render loop.
+The resulting garbage-collection work is unpredictable and can show up as frame-time spikes, while
+hoisted scratch objects provide the same mutable state without recurring allocation.
+
 ## Detection
 
 A report requires a verified render-loop callback plus a provable Three.js allocation inside it.
@@ -23,6 +29,16 @@ A callback counts as a render-loop callback only through one of these dispatch m
   (for example `languageOptions: { globals: { AFRAME: "readonly" } }`).
 - `onBeforeRender` or `onRender` destructured from a `useLoop()` call imported from
   `@tresjs/core`.
+- A one-argument `setOpaqueSort` or `setTransparentSort` comparator installed on that same proven
+  renderer. A render-list comparator runs once per comparison, so it is a strictly hotter path than
+  the frame callback that triggers the sort.
+- `onBeforeRender` or `onAfterRender` installed with a plain `=` on an immutable instance of a
+  cataloged renderable class (`Scene`, `Mesh`, `SkinnedMesh`, `InstancedMesh`, `BatchedMesh`, `Line`,
+  `LineSegments`, `Points`, `Sprite`, and the nine renderable helpers `AxesHelper`, `Box3Helper`,
+  `BoxHelper`, `CameraHelper`, `GridHelper`, `PlaneHelper`, `PointLightHelper`, `PolarGridHelper`,
+  `SkeletonHelper`), or declared as a non-static method or field on a direct subclass of one.
+  `LineLoop` and the renderer-specific shadow hooks are excluded: both renderers share the core
+  object classes, so an object's import source cannot prove which renderer will dispatch it.
 
 The callback itself may be an inline function or arrow, or one immutable local binding that
 permanently holds a function. A callback is never recognized by its name alone.
@@ -124,3 +140,11 @@ Enabled by `three/recommended` and `three/all`.
 - [React Three Fiber: Performance pitfalls](https://r3f.docs.pmnd.rs/advanced/pitfalls)
 - [A-Frame: Best practices](https://github.com/aframevr/aframe/blob/master/docs/introduction/best-practices.md)
 - [Three.js manual: How to update things](https://threejs.org/manual/en/how-to-update-things.html)
+- [Three.js `WebGLRenderer.js` source](https://github.com/mrdoob/three.js/blob/r185/src/renderers/WebGLRenderer.js)
+  — the `setOpaqueSort`/`setTransparentSort` comparators and the per-object render-hook dispatch.
+- [Three.js common `Renderer.js` source](https://github.com/mrdoob/three.js/blob/r185/src/renderers/common/Renderer.js)
+  — the same two dispatch sites in the WebGPU renderer.
+- [Three.js `Object3D.js` source](https://github.com/mrdoob/three.js/blob/r185/src/core/Object3D.js)
+  — the `onBeforeRender`/`onAfterRender` hook declarations.
+- Audit causes `AAM-01`, `GBU-01`, `MLD-12`, `PFAG-01`, `WBO-05`, and `TS-07` in
+  [the repository's Three.js performance audit](../../THREEJS-PERFORMANCE-AUDIT.md).

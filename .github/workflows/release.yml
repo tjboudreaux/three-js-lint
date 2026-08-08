@@ -52,7 +52,7 @@ jobs:
           if npm view "${NAME}" name >/dev/null 2>&1; then
             REPO="$(npm view "${NAME}" repository.url 2>/dev/null || echo '')"
             case "${REPO}" in
-              *tjboudreaux/eslint-plugin-three*) ;;
+              *tjboudreaux/three-js-lint*) ;;
               *)
                 echo "::error::Existing npm package ${NAME} points at '${REPO}', not this repository."
                 exit 1
