@@ -2,32 +2,46 @@
 
 Conservative, syntax-proven ESLint rules for Three.js performance and rendering.
 
-Three.js performance problems are usually not exotic. They are a `devicePixelRatio` forwarded
-straight into `setPixelRatio`, a `new Vector3()` inside a frame callback, a `needsUpdate = true` that
-asks for a shader program every frame, or a transform object replaced instead of mutated in place.
-Those are syntax-visible, and this plugin reports them — and nothing else.
+Most Three.js performance bugs are visible in plain source: a raw `devicePixelRatio` handed to
+`setPixelRatio`, a `new Vector3()` inside a frame callback, or a `needsUpdate = true` write that
+requests a new GPU program on every frame. This plugin reports those patterns and nothing else.
 
-Every rule here is deliberately narrow. A report requires a resolved binding identity and an exact
-AST shape, never a naming convention or a guess. If the plugin cannot prove the receiver, the import
-provenance, or the dispatch mechanism, it stays silent. That trade is intentional: a linter you
-cannot trust gets disabled.
+Each rule is narrow on purpose: a report needs a resolved binding and an exact AST shape, and a
+name match or a guess is never enough. When the plugin cannot prove the receiver, the import
+source, or the dispatch path, it stays silent. The trade is deliberate: a linter you cannot trust
+gets turned off.
 
-## Installation
+Version `0.1.0` is the first release. As of `2026-08-07 UTC`, the `npm` registry returns 404 for
+the package name, so it has yet to be published. Report bugs and ask questions on
+[GitHub issues](https://github.com/tjboudreaux/three-js-lint/issues).
+
+## Contents
+
+- [Install](#install)
+- [Usage](#usage)
+- [Rules](#rules)
+- [Scope and limits](#scope-and-limits)
+- [Research basis](#research-basis)
+- [Contributing](#contributing)
+
+## Install
+
+Three.js Lint needs:
+
+- **ESLint** `^9.22.0 || ^10.0.0`, flat config only.
+- **Node** `^20.19.0 || ^22.13.0 || >=24`. CI proves 20.19, 22.13, and 24.
+- **ESM.** The package ships one ESM entry point and no CommonJS build. Use `eslint.config.mjs` or
+  an ESM `eslint.config.js`.
+
+Then install the package:
 
 ```sh
 npm install --save-dev eslint-plugin-threejslint
 ```
 
-Requirements:
-
-- **ESLint** `^9.22.0 || ^10.0.0`, flat config only.
-- **Node** `^20.19.0 || ^22.13.0 || >=24`. CI proves 20.19, 22.13, and 24.
-- **ESM only.** The package ships a single ESM entry point and has no CommonJS build, so
-  `eslint.config.mjs` or an ESM `eslint.config.js` is required.
-
-The plugin has **no runtime dependencies**. It never imports Three.js, React, React Three Fiber, Vue,
-TresJS, A-Frame, or three-mesh-bvh — it reads your import statements instead. You do not need any of
-those packages installed for the rules to work, and having them installed changes nothing.
+The plugin has **no runtime dependencies**. It never imports Three.js, React, React Three Fiber,
+Vue, TresJS, A-Frame, or three-mesh-bvh. It reads your import statements instead. You never need
+those packages installed, and installing them changes nothing.
 
 ## Usage
 
@@ -53,7 +67,7 @@ import threeLint from "eslint-plugin-threejslint";
 export default [...threeLint.configs.recommended];
 ```
 
-Both forms register the same plugin object, so rule IDs resolve identically.
+Both forms register the same plugin object, so rule IDs resolve the same way.
 
 ### Presets
 
@@ -66,30 +80,26 @@ Both forms register the same plugin object, so rule IDs resolve identically.
 
 <!-- END GENERATED CONFIGS -->
 
-`three/recommended` enables the twelve rules whose evidence is strong enough to be on by default.
-`three/all` additionally enables six opt-in rules, for three distinct reasons:
+`three/recommended` enables the twelve rules with evidence strong enough to be on by default.
+`three/all` adds six opt-in rules, for three reasons:
 
-- **Framework and ecosystem integration** — `no-new-in-jsx-props`,
-  `no-transform-set-attribute-in-tick`, and `prefer-bvh-first-hit-only` depend on project-specific
-  integration and framework-version semantics you should confirm for your project.
-- **Full-scan recomputation** — `no-bounds-recompute-in-render-loop` and
-  `no-geometry-recompute-in-render-loop` report work that is genuinely necessary on small or
-  continuously changing data.
-- **Readability trade** — `prefer-squared-vector-magnitude` trades a little readability for one
-  saved square root, which only matters on a hot path.
+- **Framework integration:** `no-new-in-jsx-props`, `no-transform-set-attribute-in-tick`, and
+  `prefer-bvh-first-hit-only` depend on framework-version semantics you should confirm first
+- **Full-scan recomputation:** `no-bounds-recompute-in-render-loop` and
+  `no-geometry-recompute-in-render-loop` report work that small or always-changing data truly needs
+- **Readability trade:** `prefer-squared-vector-magnitude` saves one square root on a hot path
 
-`three/all` will grow automatically as new rules ship, so pin a version if you need a stable rule
-set.
+`three/all` grows on its own as new rules ship. Pin a version if you need a stable rule set.
 
-Each preset is a single named config object containing nothing but `plugins` and `rules`. There is no
-parser, no `globals`, no `files`, no `languageOptions`, and no framework plugin. You keep full control
-over how your files are parsed.
+Each preset is one named config object that holds nothing but `plugins` and `rules`. There is
+no parser, no `globals`, no `files`, no `languageOptions`, and no framework plugin. You keep full
+control over how your files are parsed.
 
 ### TypeScript and JSX
 
-The rules are parser-neutral: they read the AST structurally and treat `as`, `satisfies`, `!`,
-angle-bracket assertions, and optional chaining as transparent. Because the presets never set a
-parser, compose them with whatever parser your project already uses:
+The rules are parser-neutral. They read the AST shape and treat `as`, `satisfies`, `!`,
+angle-bracket assertions, and optional chaining as transparent. The presets never set a parser, so
+compose them with whatever parser your project already uses:
 
 ```js
 // eslint.config.mjs
@@ -110,13 +120,13 @@ export default defineConfig(
 );
 ```
 
-Type-only imports are ignored, because they are erased at runtime and cannot construct anything.
+Type-only imports are ignored: they vanish at runtime and cannot construct anything.
 
 ### A-Frame projects
 
-Two rules recognize `AFRAME.registerComponent` only when `AFRAME` is a namespace import of `aframe`
-or a global your configuration actually declares. Declaring it prevents an unrelated project global
-named `AFRAME` from being mistaken for A-Frame:
+Two rules recognize `AFRAME.registerComponent` only when `AFRAME` comes from
+`import * as AFRAME from "aframe"` or from a global your configuration declares. Declaring the
+global stops a stray project global named `AFRAME` from being read as A-Frame:
 
 ```js
 // eslint.config.mjs
@@ -130,12 +140,12 @@ export default defineConfig({
 });
 ```
 
-### Using this alongside @react-three/eslint-plugin
+### With @react-three/eslint-plugin
 
-`@react-three/eslint-plugin` already owns allocation diagnostics inside React Three Fiber's
-`useFrame`. To avoid duplicate reports, `three/no-three-allocation-in-render-loop` is the **only**
-rule in this package that excludes `useFrame`; every other loop rule includes it. Enable the two
-upstream rules directly so R3F allocation is still covered:
+`@react-three/eslint-plugin` already owns allocation reports inside React Three Fiber's
+`useFrame` callback. To avoid duplicates, `three/no-three-allocation-in-render-loop`
+excludes `useFrame` while every other loop rule includes it. Enable the two upstream rules
+directly, so React Three Fiber allocation stays covered:
 
 ```js
 // eslint.config.mjs
@@ -153,8 +163,8 @@ export default defineConfig({
 });
 ```
 
-Enable those two rules individually rather than spreading `@react-three/eslint-plugin`'s legacy
-preset, which is not a flat config.
+Enable those two rules one by one. Spreading `@react-three/eslint-plugin`'s legacy preset fails
+under flat config.
 
 ## Rules
 
@@ -183,62 +193,81 @@ preset, which is not a flat config.
 
 <!-- END GENERATED RULES -->
 
-Every rule is optionless (`schema: []`) and never autofixable. Two rules offer editor suggestions,
-which your editor may apply on request but `eslint --fix` never applies automatically. Two rules —
-`no-replace-object3d-transform` and `no-non-numeric-vector-components` — report a correctness fault
-(`meta.type: "problem"`); the other sixteen report a performance or API policy violation.
+Every rule takes no options: each schema is `[]`, so ESLint rejects any options passed to a rule
+during config validation. No rule edits your code, and `eslint --fix` never applies anything from
+this plugin. Two rules offer editor suggestions, which your editor applies only on request.
 
-Each rule's page documents its detection contract, its explicit non-reports, and its static limits.
-Start there before filing a false positive — the boundary is usually deliberate.
+Two rules report a correctness fault (`meta.type: "problem"`): `no-replace-object3d-transform` and
+`no-non-numeric-vector-components`. The other sixteen report a performance or API policy
+violation.
 
-## What this plugin does not do
+Each rule page explains why the rule exists, what it detects, what it never reports, and its
+static limits. Read that page before filing a false positive. The boundary is usually
+deliberate.
 
-The rule surface is syntax-only by design. This plugin performs no runtime analysis: it does not
-estimate callback frequency, FPS, GPU time, draw calls, asset encoding, resource ownership, iteration
-count, or scene suitability.
+## Scope and limits
 
-Concretely, the support boundary is:
+The rule surface is syntax-only by design. The plugin runs no runtime analysis. It does not
+estimate callback rate, FPS, GPU time, draw calls, asset encoding, resource ownership, loop
+counts, or scene fit.
 
-- **ESM import provenance.** Recognized specifiers are exactly `three`, `three/webgpu`, `react`,
-  `vue`, `@react-three/fiber`, `@tresjs/core`, `three-mesh-bvh`, and `aframe`. Deep paths such as
-  `three/src/math/Vector3.js`, re-export barrels, and `require()` are not recognized. There is
-  exactly one narrow exception: `three/no-three-loader-parse-in-render-loop` additionally recognizes
-  the finite `three/addons` barrel plus its direct `three/addons/loaders/<File>.js` and
-  compatibility `three/examples/jsm/loaders/<File>.js` pairs, where the file name must match the
-  imported class. Arbitrary `three/src` paths, other addon directories, unlisted addon modules, user
-  re-export barrels, default imports, and CommonJS remain unsupported everywhere.
-- **One immutable alias hop.** A direct named import, a namespace member access, or a single
-  immutable `const` alias resolves. Two hops does not.
-- **Direct callback bodies.** A report fires only when the reported node's nearest enclosing function
-  is the verified callback. Code moved into a helper or a nested closure is never attributed to a
-  loop.
-- **Proven dispatch.** A render-loop callback is recognized from the registration site, never from
-  its own name: a `requestAnimationFrame` call, a `setAnimationLoop` or sort-comparator setter on a
-  proven renderer, an `onBeforeRender`/`onAfterRender` installed on a proven renderable instance or
-  declared on a direct subclass of one, an `AFRAME.registerComponent` `tick`/`tock`, a current
-  `@tresjs/core` `useLoop` callback, or a React Three Fiber `useFrame`. `LineLoop` render hooks and
-  the renderer-specific shadow hooks are excluded, because both renderers share the core object
-  classes and an object's import source cannot prove which renderer will dispatch it.
+Four boundaries define what a rule may claim.
 
-Broadening any of these would change the false-positive contract, so it is a separate, reviewed
-design decision rather than a patch.
+### Import provenance
+
+Recognized module specifiers are exactly `three`, `three/webgpu`, `react`, `vue`,
+`@react-three/fiber`, `@tresjs/core`, `three-mesh-bvh`, and `aframe`. Deep paths such as
+`three/src/math/Vector3.js`, re-export barrels, and `require()` are never recognized.
+
+One rule carries a narrow exception: `three/no-three-loader-parse-in-render-loop` also recognizes
+the finite `three/addons` barrel plus the official loader paths `three/addons/loaders/<File>.js`
+and `three/examples/jsm/loaders/<File>.js`, where the file name must match the imported class.
+Everything else stays unsupported everywhere: arbitrary `three/src` paths, other `three/addons`
+directories, unlisted loader modules, user re-export barrels, default imports, and CommonJS.
+
+### Alias resolution
+
+A direct named import resolves. So does a `THREE.Vector3`-style member access, and a single
+immutable `const` alias. Two hops never resolve.
+
+### Callback attribution
+
+A report fires only when the reported node's nearest enclosing function is the verified callback.
+Code moved into a helper or a nested closure is never attributed to a loop.
+
+### Dispatch proof
+
+A render-loop callback is recognized from its registration site, never from its own name. The
+proven sites are a `requestAnimationFrame` call, a `setAnimationLoop` or sort-comparator setter on
+a proven renderer, and an `onBeforeRender` or `onAfterRender` hook on a proven instance of a
+cataloged class or on a direct subclass of one.
+
+Framework dispatch is proven the same way: the `tick` and `tock` methods of an
+`AFRAME.registerComponent` definition, a current `@tresjs/core` `useLoop` callback, and a React
+Three Fiber `useFrame` callback.
+
+`LineLoop` render hooks and the renderer-specific shadow hooks are excluded. Both renderer classes
+share the core object classes, so an object's import source cannot prove which renderer will
+dispatch it.
+
+Widening any of these bounds would change the false-positive contract. Each widening is a
+separate, reviewed design choice rather than a patch.
 
 ### Rules considered and deferred
 
-Four candidates were designed and deferred because syntax alone cannot establish the precondition:
-texture color-space correctness, `BufferAttribute` upload batching, projection-matrix update
-placement, and bounds refresh after geometry mutation. Each depends on asset encoding or on resource
-ownership that a linter cannot see.
+Four candidates were designed and then deferred, because syntax alone cannot establish the
+precondition: texture color-space correctness, `BufferAttribute` upload batching,
+projection-matrix update placement, and bounds refresh after geometry mutation. Each depends on
+asset encoding or on resource ownership that a linter cannot see.
 
 Two candidates were dropped outright: an instancing-suitability rule and a triangle-fan rule. Both
-require knowing scene scale and draw-call value, which is a runtime property of the scene, not of the
-source.
+depend on scene scale and draw-call value, and those values exist only at runtime.
 
 ## Research basis
 
-Each source below was reviewed for advice that could be turned into a syntax-provable rule. Where it
-could not, the reason is recorded rather than approximated. Perplexity was used only to find
-candidate sources; no claim was accepted without verifying it against a primary source.
+Each source below was reviewed for advice that a syntax-provable rule could enforce. Where it
+could not, the reason is recorded instead. Perplexity was used only to find
+candidate sources. No claim was accepted without a primary source.
 
 | Source                                                                                                                              | Outcome                                                                                                                                                                              |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -253,28 +282,36 @@ candidate sources; no claim was accepted without verifying it against a primary 
 | [detect-gpu](https://github.com/pmndrs/detect-gpu)                                                                                  | Evidence that pixel-ratio policy is device-dependent. No static tier thresholds: the plugin reports the unbounded forward and leaves the cap to you.                                 |
 | [awesome-threejs](https://github.com/AxiomeCG/awesome-threejs)                                                                      | Source index used to find the projects above. No ESLint tooling of its own.                                                                                                          |
 | [THREE.Terrain](https://github.com/IceCreamYou/THREE.Terrain)                                                                       | Motivated the deferred `BufferAttribute` upload and ownership analysis.                                                                                                              |
-| [r3f-perf](https://github.com/utsuboco/r3f-perf)                                                                                    | Shader-program and runtime measurement evidence behind `no-shader-recompile-in-render-loop`. Its metrics are runtime-only, so no rule reads them.                                    |
+| [r3f-perf](https://github.com/utsuboco/r3f-perf)                                                                                    | Program-compile counts and runtime measurements behind `no-shader-recompile-in-render-loop`. Its metrics are runtime-only, so no rule reads them.                                    |
 | [Perplexity search](https://www.perplexity.ai/search/give-me-a-list-of-eslint-rules-emffLUbiQCKaP0eHqFPohw)                         | Discovery leads only. No claim accepted without independent verification.                                                                                                            |
 | [Three.js performance audit (this repository)](https://github.com/tjboudreaux/three-js-lint/blob/main/THREEJS-PERFORMANCE-AUDIT.md) | 1,232 issues / 16,148 comments / 96 static-lint causes / 19 enforceable / 77 rejected. As of `2026-08-07 UTC`, 63.1% of issues name a performance mechanism and 32.1% establish one. |
 
-The audit is the repository-local evidence base for the rule surface: it enumerates every root cause
-labelled `static_lint` and records, one row per cause, whether a conservative syntax rule can prove
-its precondition. Nineteen causes have a sound syntax slice and map to the rules above; the other 77
-are rejected with an explicit reason, grouped by whether the missing precondition is core/upstream,
-runtime or scene-scale, asset or numeric, ownership and lifetime, or generic interprocedural
-JavaScript. Neither the audit nor its per-issue register ships in the npm package.
+The audit is the repository-local evidence base for the rule surface. It lists every root
+cause labelled `static_lint` and records, one row per cause, whether a conservative syntax rule
+can prove its precondition. Nineteen causes have a sound syntax slice and map to the rules above.
 
-Primary Three.js sources used for rule semantics, read at `three@0.185.0` (r185):
+The other 77 are rejected with a stated reason, grouped by the missing precondition:
+core/upstream, runtime or scene-scale, asset or numeric, ownership and lifetime, or generic
+cross-function JavaScript. Neither the audit nor its per-issue register ships in the `npm`
+package.
+
+Rule semantics were read from `three@0.185.0` (r185). Manuals:
 
 - [Responsive design manual](https://threejs.org/manual/en/responsive.html)
 - [How to update things manual](https://threejs.org/manual/en/how-to-update-things.html)
+
+Core and math sources:
+
 - [`Object3D.js`](https://github.com/mrdoob/three.js/blob/r185/src/core/Object3D.js)
 - [`Material.js`](https://github.com/mrdoob/three.js/blob/r185/src/materials/Material.js)
-- [`WebGLRenderer.js`](https://github.com/mrdoob/three.js/blob/r185/src/renderers/WebGLRenderer.js)
-- [common `Renderer.js`](https://github.com/mrdoob/three.js/blob/r185/src/renderers/common/Renderer.js)
 - [`BufferGeometry.js`](https://github.com/mrdoob/three.js/blob/r185/src/core/BufferGeometry.js)
 - [`Curve.js`](https://github.com/mrdoob/three.js/blob/r185/src/extras/core/Curve.js)
 - [`Raycaster.js`](https://github.com/mrdoob/three.js/blob/r185/src/core/Raycaster.js)
+
+Renderer and add-on sources:
+
+- [`WebGLRenderer.js`](https://github.com/mrdoob/three.js/blob/r185/src/renderers/WebGLRenderer.js)
+- [common `Renderer.js`](https://github.com/mrdoob/three.js/blob/r185/src/renderers/common/Renderer.js)
 - [`NodeMaterials.js`](https://github.com/mrdoob/three.js/blob/r185/src/materials/nodes/NodeMaterials.js)
 - [`Addons.js`](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/Addons.js)
 
@@ -285,9 +322,9 @@ pnpm install --frozen-lockfile
 pnpm verify
 ```
 
-`pnpm verify` runs, in order: format check, self-lint, strict typecheck, NodeNext build, the
-RuleTester suite against all four pinned ESLint versions, the coverage-gated suite, the README/docs
-consistency check, and a packed-tarball consumer smoke test.
+`pnpm verify` runs these steps in order: format check, self-lint, strict type checking, NodeNext
+build, the RuleTester suite against all four pinned ESLint versions, the coverage-gated suite, the
+README and docs sync check, and a packed-tarball consumer smoke test.
 
 To run the packed artifact against a specific ESLint release:
 
@@ -300,15 +337,15 @@ side of every resolution boundary, and an entry in the research table above.
 
 ### Versioning and migration
 
-The npm name `eslint-plugin-threejslint` is unused: as of `2026-08-07 UTC` the registry returns 404 for it,
-so no version of this package has ever been published. `0.1.0` is therefore the first release and
-there are **no installed users to migrate** — the eighteen-rule surface documented above is the
-initial surface, not an expansion of a shipped one.
+The `npm` name `eslint-plugin-threejslint` is unused: as of `2026-08-07 UTC` the registry returns
+404 for it, so this package has never been published. `0.1.0` is the first
+release, and there are **no installed users to migrate**. The eighteen-rule surface documented
+above is the initial surface.
 
-Were a version already published, the preset expansion would be the breaking part: `three/recommended`
-enables twelve rules, six more than a six-rule release did, so an upgrade could surface new errors in
-code that previously passed. The migration is to disable individual rule IDs while you work through
-them:
+If a version were already published, the preset expansion would be the breaking part:
+`three/recommended` enables twelve rules, six more than a six-rule release did, so an upgrade
+could surface new errors in code that passed before. The migration is to turn off single
+rule IDs while you work through them:
 
 ```js
 // eslint.config.mjs
@@ -322,31 +359,43 @@ export default defineConfig({
 });
 ```
 
-The recommended partition is decided on evidence strength, not on avoiding a semver decision, so a
-rule is never left out of `three/recommended` merely to keep an upgrade quiet.
+Evidence strength decides the recommended split. A rule is never left out of
+`three/recommended` merely to keep an upgrade quiet.
 
 ### Maintainer release
 
 Do not run these steps as part of ordinary development.
 
-npm cannot configure a Trusted Publisher for a package that does not exist yet
-([npm/cli#8544](https://github.com/npm/cli/issues/8544)), so the very first publish needs a one-time
-interactive bootstrap:
+`npm` cannot configure a Trusted Publisher for a package that does not exist yet
+([npm/cli#8544](https://github.com/npm/cli/issues/8544)), so the very first publish needs a
+one-time interactive bootstrap:
 
-1. Confirm the name is still available on npm, then run full verification on a clean checkout.
-2. In a **disposable copy** of the tree, run `pnpm version 0.0.0-oidc-bootstrap --no-git-tag-version`
-   and `pnpm verify` again, then publish that functioning prerelease interactively:
-   `npm publish --access public --tag oidc-bootstrap`.
-3. Discard the copy. The main tree stays at `0.1.0`.
-4. Configure npm Trusted Publisher for repository `tjboudreaux/three-js-lint` and workflow
-   `release.yml`.
-5. Create the `0.1.0` GitHub release. `release.yml` publishes it with provenance over OIDC.
-6. Deprecate the bootstrap:
-   `npm deprecate eslint-plugin-threejslint@0.0.0-oidc-bootstrap "OIDC bootstrap only; use ^0.1.0."`
+1. Confirm the name is still free on `npm`, then run `pnpm verify` on a clean checkout.
+2. In a **disposable copy** of the tree, version, verify, and publish a functioning prerelease
+   interactively:
 
-The bootstrap prerelease is a real, working build — never a placeholder or no-op package. If Trusted
-Publisher setup cannot be completed, the `0.1.0` release stops until it can. No long-lived npm token
-and no workflow token fallback is permitted.
+   ```sh
+   pnpm version 0.0.0-oidc-bootstrap --no-git-tag-version
+   pnpm verify
+   npm publish --access public --tag oidc-bootstrap
+   ```
+
+3. Discard the copy; the main tree stays at `0.1.0`.
+
+With the bootstrap published, hand the release to CI:
+
+1. Configure `npm` Trusted Publisher for repository `tjboudreaux/three-js-lint` and workflow
+   `release.yml`, then create the `0.1.0` GitHub release, which `release.yml` publishes with
+   provenance over OIDC.
+2. Deprecate the bootstrap:
+
+   ```sh
+   npm deprecate eslint-plugin-threejslint@0.0.0-oidc-bootstrap "OIDC bootstrap only; use ^0.1.0."
+   ```
+
+The bootstrap prerelease is a real, working build, never a placeholder or no-op package. If
+Trusted Publisher setup cannot be completed, the `0.1.0` release stops until it can. No long-lived
+`npm` token and no workflow token fallback is permitted.
 
 ## License
 

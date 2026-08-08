@@ -94,7 +94,7 @@ const slow = velocity.length() < 0.5;
 
 ## Options
 
-This rule has no options. Its schema is `[]`, and it ignores any configuration passed to it.
+This rule has no options. Its schema is `[]`, so ESLint rejects any configured options.
 
 ## Suggestions
 

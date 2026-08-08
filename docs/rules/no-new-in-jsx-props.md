@@ -92,7 +92,7 @@ const view = <mesh position={[0, 1, 0]} />;
 
 ## Options
 
-This rule has no options. Its schema is `[]`, and it ignores any configuration passed to it.
+This rule has no options. Its schema is `[]`, so ESLint rejects any configured options.
 
 ## Suggestions
 
